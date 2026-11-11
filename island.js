@@ -578,6 +578,11 @@ class Island extends St.BoxLayout {
         if (inFullscreen)
             this._setExpanded(false);
         this._refresh();
+        this._reposition();
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 80, () => {
+            this._reposition();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _tuck() {
@@ -628,9 +633,9 @@ class Island extends St.BoxLayout {
     _refresh() {
         const hasIndicators = this._indicators.size > 0;
         const hideForFullscreen = this._inFullscreen && this._settings.get_boolean('hide-in-fullscreen');
-        const showMusic = this._hasMusic && !this._toastActive && !hideForFullscreen;
-        const showIndicators = !this._toastActive && hasIndicators && !hideForFullscreen;
-        const hasContent = showMusic || showIndicators || this._toastActive;
+        const showMusic = this._hasMusic && !this._toastActive;
+        const showIndicators = !this._toastActive && hasIndicators;
+        const hasContent = (showMusic || showIndicators) && !hideForFullscreen;
 
         if (this._tucked && !this._toastActive) {
             this._morphTucked();
@@ -656,7 +661,7 @@ class Island extends St.BoxLayout {
             this._toastBox.visible = this._toastActive;
             this._handle.visible = expanded && !this._slot;
         });
-        this._setShown(hasContent);
+        this._setShown(hasContent || this._toastActive);
         this._fitSlot();
     }
 
@@ -666,14 +671,25 @@ class Island extends St.BoxLayout {
         this._shown = shown;
         if (shown) {
             this.show();
-            this.set({opacity: 0, scale_x: 0.5, scale_y: 0.5});
-            this.ease({opacity: 255, scale_x: 1, scale_y: 1, duration: 500, mode: Clutter.AnimationMode.EASE_OUT_BACK});
+            this._reposition();
+            this.set({opacity: 0, scale_x: 0.9, scale_y: 0.9});
+            this.ease({
+                opacity: 255,
+                scale_x: 1,
+                scale_y: 1,
+                duration: 220,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                onComplete: () => {
+                    this.set({scale_x: 1, scale_y: 1, opacity: 255});
+                    this._reposition();
+                },
+            });
         } else {
             this.ease({
                 opacity: 0,
-                scale_x: 0.5,
-                scale_y: 0.5,
-                duration: 220,
+                scale_x: 0.9,
+                scale_y: 0.9,
+                duration: 200,
                 mode: Clutter.AnimationMode.EASE_IN_QUAD,
                 onComplete: () => this.hide(),
             });
@@ -737,8 +753,7 @@ class Island extends St.BoxLayout {
 
         this.set_size(-1, -1);
         change();
-        const hideForFullscreen = this._inFullscreen && this._settings.get_boolean('hide-in-fullscreen');
-        const musicActive = this._hasMusic && !this._toastActive && !hideForFullscreen;
+        const musicActive = this._hasMusic && !this._toastActive;
         this._layout = this._expanded && musicActive ? this._expandedGeometry() : this._compact();
         const to = this._layout;
         this._applyGeometry(to);
@@ -996,11 +1011,13 @@ class Island extends St.BoxLayout {
             return;
         const [vertical, horizontal] = this._settings.get_string('position').split('-');
         const margin = this._settings.get_int('margin');
-        let x = monitor.x + Math.floor((monitor.width - this.width) / 2);
+        const width = this.width > 0 ? this.width : this.get_preferred_width(-1)[1];
+        const height = this.height > 0 ? this.height : this.get_preferred_height(width)[1];
+        let x = monitor.x + Math.floor((monitor.width - width) / 2);
         if (horizontal === 'left')
             x = monitor.x + margin;
         else if (horizontal === 'right')
-            x = monitor.x + monitor.width - this.width - margin;
+            x = monitor.x + monitor.width - width - margin;
 
         if (this._tucked && !this._toastActive) {
             this.set_position(x, monitor.y);
@@ -1011,7 +1028,7 @@ class Island extends St.BoxLayout {
         const topOffset = hasTopBar ? Main.panel.height : 0;
         const y = vertical === 'top'
             ? monitor.y + topOffset + margin
-            : monitor.y + monitor.height - this.height - margin;
+            : monitor.y + monitor.height - height - margin;
         this.set_position(x, y);
     }
 });
