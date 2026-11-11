@@ -37,7 +37,7 @@ function buildLayouts(settings) {
         compact,
         // Slimmer resting island so it fits inside the top bar, a bigger cover eats into the padding first
         panelCompact: {...compact, padding: [panelPad, Math.max(0, 12 - tighten), panelPad, 3]},
-        expanded: {radius: 30, padding: [12, 16, 12, 12], spacing: SPACING, artSize: big, artRadius: radius(big, ART_RADIUS.rounded), expanded: true},
+        expanded: {radius: 30, padding: [10, 16, 6, 12], spacing: SPACING, artSize: big, artRadius: radius(big, ART_RADIUS.rounded), expanded: true},
     };
 }
 
@@ -103,6 +103,7 @@ class Island extends St.BoxLayout {
     _init(settings) {
         super._init({
             style_class: 'di-island',
+            vertical: true,
             reactive: true,
             track_hover: true,
             visible: false,
@@ -119,6 +120,10 @@ class Island extends St.BoxLayout {
         this._activeNotification = null;
         this._toastActive = false;
         this._inFullscreen = false;
+        this._tucked = false;
+        this._dragStartY = 0;
+        this._isDragging = false;
+        this._untuckTimeoutId = 0;
         this._toastId = 0;
         this._hoverId = 0;
         this._timeline = null;
@@ -135,8 +140,11 @@ class Island extends St.BoxLayout {
         this._phase = 0;
         this._accent = accentGradient(settings.get_string('accent-color'));
 
+        this._row = new St.BoxLayout({vertical: false, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
+        this.add_child(this._row);
+
         this._art = new St.Bin({style_class: 'di-art', pivot_point: new Graphene.Point({x: 0.5, y: 0.5})});
-        this.add_child(this._art);
+        this._row.add_child(this._art);
 
         // Gap the clock shows through in notch mode
         this._notch = new St.Widget({visible: false, x_expand: true});
@@ -155,13 +163,13 @@ class Island extends St.BoxLayout {
         this._artist.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this._text.add_child(this._title);
         this._text.add_child(this._artist);
-        this.add_child(this._text);
-        this.add_child(this._notch);
+        this._row.add_child(this._text);
+        this._row.add_child(this._notch);
 
         this._eq = new St.DrawingArea({height: EQ_HEIGHT, y_align: Clutter.ActorAlign.CENTER});
         this._eq.connect('repaint', area => this._drawEq(area));
         this._eq.width = this._eqWidth();
-        this.add_child(this._eq);
+        this._row.add_child(this._eq);
         this._eqTimeline = new Clutter.Timeline({actor: this._eq, duration: 1000, repeat_count: -1});
         this._eqTimeline.connect('new-frame', () => this._stepEq(this._eqTimeline.get_delta() / 1000));
         this._eqTimeline.start();
@@ -172,10 +180,10 @@ class Island extends St.BoxLayout {
         this._playButton.add_style_class_name('di-play');
         this._controls.add_child(this._playButton);
         this._controls.add_child(this._button('next', () => this._player?.next()));
-        this.add_child(this._controls);
+        this._row.add_child(this._controls);
 
         this._indicatorBox = new St.BoxLayout({style_class: 'di-indicators', visible: false, y_align: Clutter.ActorAlign.CENTER});
-        this.add_child(this._indicatorBox);
+        this._row.add_child(this._indicatorBox);
 
         this._toastBox = new St.BoxLayout({style_class: 'di-toast', visible: false, y_align: Clutter.ActorAlign.CENTER});
         this._toastIcon = new St.Icon({style_class: 'di-toast-icon'});
@@ -199,7 +207,20 @@ class Island extends St.BoxLayout {
         this._toastBox.add_child(this._toastIcon);
         this._toastBox.add_child(this._toastBar);
         this._toastBox.add_child(this._toastTextBox);
-        this.add_child(this._toastBox);
+        this._row.add_child(this._toastBox);
+
+        this._handle = new St.Widget({
+            style_class: 'di-handle',
+            x_align: Clutter.ActorAlign.CENTER,
+            reactive: true,
+            visible: false,
+        });
+        this._handle.connect('button-release-event', () => {
+            if (!this._tucked)
+                this._tuck();
+            return Clutter.EVENT_STOP;
+        });
+        this.add_child(this._handle);
 
         this._place();
         this._inFullscreen = this._checkFullscreen();
@@ -244,6 +265,8 @@ class Island extends St.BoxLayout {
             GLib.source_remove(this._toastId);
         if (this._hoverId)
             GLib.source_remove(this._hoverId);
+        if (this._untuckTimeoutId)
+            GLib.source_remove(this._untuckTimeoutId);
         this._timeline?.stop();
         this._artCancellable.cancel();
         global.display.disconnectObject(this);
@@ -364,9 +387,59 @@ class Island extends St.BoxLayout {
             this._slot.ease({width: this._shown ? this._restWidth : 0, duration: 300, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
     }
 
+    vfunc_button_press_event(event) {
+        if (event.get_button() === Clutter.BUTTON_PRIMARY) {
+            const [, y] = event.get_coords();
+            this._dragStartY = y;
+            this._isDragging = true;
+        }
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    vfunc_motion_event(event) {
+        if (this._isDragging) {
+            const [, y] = event.get_coords();
+            const deltaY = y - this._dragStartY;
+            if (this._tucked) {
+                if (deltaY > 8) {
+                    this._isDragging = false;
+                    this._untuck();
+                    return Clutter.EVENT_STOP;
+                }
+            } else {
+                if (deltaY < -10) {
+                    this._isDragging = false;
+                    this._tuck();
+                    return Clutter.EVENT_STOP;
+                }
+            }
+        }
+        return Clutter.EVENT_PROPAGATE;
+    }
+
     vfunc_button_release_event(event) {
         if (event.get_button() !== Clutter.BUTTON_PRIMARY)
             return Clutter.EVENT_PROPAGATE;
+
+        if (this._isDragging) {
+            this._isDragging = false;
+            const [, y] = event.get_coords();
+            const deltaY = y - this._dragStartY;
+            if (this._tucked && deltaY > 8) {
+                this._untuck();
+                return Clutter.EVENT_STOP;
+            }
+            if (!this._tucked && deltaY < -10) {
+                this._tuck();
+                return Clutter.EVENT_STOP;
+            }
+        }
+
+        if (this._tucked) {
+            this._untuck();
+            return Clutter.EVENT_STOP;
+        }
+
         if (this._activeNotification) {
             const notif = this._activeNotification;
             this.dismissToast();
@@ -508,14 +581,68 @@ class Island extends St.BoxLayout {
         this._refresh();
     }
 
+    _tuck() {
+        if (this._tucked)
+            return;
+        const monitor = Main.layoutManager.primaryMonitor;
+        const targetY = monitor ? monitor.y : 0;
+        this.ease({
+            y: targetY,
+            opacity: 180,
+            duration: 200,
+            mode: Clutter.AnimationMode.EASE_IN_QUAD,
+            onComplete: () => {
+                this.set({opacity: 255});
+                this._tucked = true;
+                this._refresh();
+            },
+        });
+    }
+
+    _untuck() {
+        if (!this._tucked)
+            return;
+        this._tucked = false;
+        this._refresh();
+        this.set({translation_y: -15, opacity: 0});
+        this.ease({
+            translation_y: 0,
+            opacity: 255,
+            duration: 350,
+            mode: Clutter.AnimationMode.EASE_OUT_BACK,
+        });
+    }
+
+    _morphTucked() {
+        this._timeline?.stop();
+        this._timeline = null;
+        this._row.visible = false;
+        this._handle.visible = true;
+        this.remove_style_class_name('di-island');
+        this.add_style_class_name('di-island-tucked');
+        this.style = 'border-radius: 0 0 8px 8px; padding: 2px 10px 4px 10px; min-width: 50px; min-height: 7px; background-color: rgba(0, 0, 0, 0.88); box-shadow: 0 2px 8px rgba(0,0,0,0.5);';
+        this.set_size(-1, -1);
+        this._reposition();
+    }
+
     // Shows/hides each part for the current state, springing the island to its new size
     _refresh() {
         const hasIndicators = this._indicators.size > 0;
         const hideForFullscreen = this._inFullscreen && this._settings.get_boolean('hide-in-fullscreen');
         const showMusic = this._hasMusic && !this._toastActive && !hideForFullscreen;
         const showIndicators = !this._toastActive && hasIndicators && !hideForFullscreen;
+        const hasContent = showMusic || showIndicators || this._toastActive;
+
+        if (this._tucked && !this._toastActive) {
+            this._morphTucked();
+            this._setShown(hasContent);
+            return;
+        }
 
         this._morph(() => {
+            this.remove_style_class_name('di-island-tucked');
+            this.add_style_class_name('di-island');
+            this._row.visible = true;
             const music = showMusic;
             const expanded = music && this._expanded;
             const notch = this._isNotch() && !expanded;
@@ -528,8 +655,9 @@ class Island extends St.BoxLayout {
             this._eq.visible = music && !expanded;
             this._indicatorBox.visible = showIndicators;
             this._toastBox.visible = this._toastActive;
+            this._handle.visible = expanded && !this._slot;
         });
-        this._setShown(showMusic || showIndicators || this._toastActive);
+        this._setShown(hasContent);
         this._fitSlot();
     }
 
@@ -554,6 +682,22 @@ class Island extends St.BoxLayout {
     }
 
     _onHover() {
+        if (this._tucked) {
+            if (this.hover) {
+                if (this._untuckTimeoutId)
+                    GLib.source_remove(this._untuckTimeoutId);
+                this._untuckTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 120, () => {
+                    this._untuckTimeoutId = 0;
+                    this._untuck();
+                    return GLib.SOURCE_REMOVE;
+                });
+            } else if (this._untuckTimeoutId) {
+                GLib.source_remove(this._untuckTimeoutId);
+                this._untuckTimeoutId = 0;
+            }
+            return;
+        }
+
         // Small hover intent delay so passing the mouse over the island doesn't make it jump
         if (this._hoverId)
             GLib.source_remove(this._hoverId);
@@ -657,8 +801,9 @@ class Island extends St.BoxLayout {
         // Width 0 = size to content, below 0 is handled by the layouts
         const minWidth = Math.max(0, this._settings.get_int('width'));
         this._text.style = `max-width: ${this._settings.get_int('text-width')}px;`;
+        this._row.style = `spacing: ${px(geometry.spacing)};`;
         this.style = `border-radius: ${top} ${top} ${bottom} ${bottom}; padding: ${geometry.padding.map(px).join(' ')};` +
-            ` spacing: ${px(geometry.spacing)};` + (minWidth > 0 ? ` min-width: ${minWidth}px;` : '') +
+            (minWidth > 0 ? ` min-width: ${minWidth}px;` : '') +
             (minHeight > 0 ? ` min-height: ${minHeight}px;` : '');
         const artSize = Math.round(geometry.artSize);
         this._art.set_size(artSize, artSize);
@@ -870,6 +1015,12 @@ class Island extends St.BoxLayout {
             x = monitor.x + margin;
         else if (horizontal === 'right')
             x = monitor.x + monitor.width - this.width - margin;
+
+        if (this._tucked && !this._toastActive) {
+            this.set_position(x, monitor.y);
+            return;
+        }
+
         const hasTopBar = Main.panel && Main.panel.visible && Math.abs(Main.panel.y - monitor.y) < 5;
         const topOffset = hasTopBar ? Main.panel.height : 0;
         const y = vertical === 'top'

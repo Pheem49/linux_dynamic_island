@@ -23,3 +23,17 @@
 .di-toast-sublabel { color: #c0c0c5; font-size: 9.5pt; max-width: 420px; }
 .di-level { height: 8px; border-radius: 4px; background-color: rgba(255,255,255,0.2); }
 .di-level-fill { height: 8px; border-radius: 4px; background-color: #fff; }
+.di-handle {
+    width: 38px;
+    height: 4px;
+    border-radius: 2px;
+    background-color: rgba(255, 255, 255, 0.38);
+    margin-top: 3px;
+    margin-bottom: 1px;
+}
+.di-handle:hover {
+    background-color: rgba(255, 255, 255, 0.85);
+}
+.di-island-tucked {
+    background-color: #000;
+}
