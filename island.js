@@ -123,7 +123,6 @@ class Island extends St.BoxLayout {
         this._tucked = false;
         this._dragStartY = 0;
         this._isDragging = false;
-        this._untuckTimeoutId = 0;
         this._toastId = 0;
         this._hoverId = 0;
         this._timeline = null;
@@ -216,7 +215,9 @@ class Island extends St.BoxLayout {
             visible: false,
         });
         this._handle.connect('button-release-event', () => {
-            if (!this._tucked)
+            if (this._tucked)
+                this._untuck();
+            else
                 this._tuck();
             return Clutter.EVENT_STOP;
         });
@@ -265,8 +266,6 @@ class Island extends St.BoxLayout {
             GLib.source_remove(this._toastId);
         if (this._hoverId)
             GLib.source_remove(this._hoverId);
-        if (this._untuckTimeoutId)
-            GLib.source_remove(this._untuckTimeoutId);
         this._timeline?.stop();
         this._artCancellable.cancel();
         global.display.disconnectObject(this);
@@ -682,21 +681,8 @@ class Island extends St.BoxLayout {
     }
 
     _onHover() {
-        if (this._tucked) {
-            if (this.hover) {
-                if (this._untuckTimeoutId)
-                    GLib.source_remove(this._untuckTimeoutId);
-                this._untuckTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 120, () => {
-                    this._untuckTimeoutId = 0;
-                    this._untuck();
-                    return GLib.SOURCE_REMOVE;
-                });
-            } else if (this._untuckTimeoutId) {
-                GLib.source_remove(this._untuckTimeoutId);
-                this._untuckTimeoutId = 0;
-            }
+        if (this._tucked)
             return;
-        }
 
         // Small hover intent delay so passing the mouse over the island doesn't make it jump
         if (this._hoverId)
