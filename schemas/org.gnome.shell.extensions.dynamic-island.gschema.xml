@@ -13,7 +13,7 @@
       <summary>Island position on screen</summary>
     </key>
     <key name="margin" type="i">
-      <range min="0" max="300"/>
+      <range min="-200" max="600"/>
       <default>6</default>
       <summary>Distance from the screen edge (px)</summary>
     </key>
@@ -22,13 +22,18 @@
       <default>0</default>
       <summary>Minimum island width (px), 0 sizes it to the content, below 0 tightens the resting island</summary>
     </key>
+    <key name="height" type="i">
+      <range min="0" max="150"/>
+      <default>0</default>
+      <summary>Minimum island height (px), 0 sizes it to the content</summary>
+    </key>
     <key name="art-size" type="i">
-      <range min="16" max="40"/>
+      <range min="16" max="120"/>
       <default>26</default>
       <summary>Cover art size in the resting island (px)</summary>
     </key>
     <key name="art-size-expanded" type="i">
-      <range min="32" max="120"/>
+      <range min="32" max="250"/>
       <default>56</default>
       <summary>Cover art size in the expanded island (px)</summary>
     </key>
@@ -97,6 +102,14 @@
     <key name="show-progress" type="b">
       <default>true</default>
       <summary>Show download and file copy progress</summary>
+    </key>
+    <key name="show-notifications" type="b">
+      <default>true</default>
+      <summary>Show desktop and app notifications in the island</summary>
+    </key>
+    <key name="hide-native-banners" type="b">
+      <default>true</default>
+      <summary>Hide default GNOME notification pop-up banners</summary>
     </key>
   </schema>
 </schemalist>

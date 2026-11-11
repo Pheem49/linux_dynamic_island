@@ -7,8 +7,9 @@ import {MediaSource} from './sources/media.js';
 import {OsdSource} from './sources/osd.js';
 import {ProgressSource} from './sources/progress.js';
 import {RecordingSource} from './sources/recording.js';
+import {NotificationSource} from './sources/notification.js';
 
-const SOURCES = [MediaSource, OsdSource, BatterySource, RecordingSource, BluetoothSource, ProgressSource];
+const SOURCES = [MediaSource, OsdSource, BatterySource, RecordingSource, BluetoothSource, ProgressSource, NotificationSource];
 
 export default class DynamicIslandExtension extends Extension {
     enable() {
@@ -18,9 +19,9 @@ export default class DynamicIslandExtension extends Extension {
     }
 
     disable() {
-        this._sources.forEach(source => source.destroy());
+        this._sources?.forEach(source => source.destroy());
         this._sources = null;
-        this._island.destroy();
+        this._island?.destroy();
         this._island = null;
         this._settings = null;
     }

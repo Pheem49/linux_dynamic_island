@@ -42,9 +42,10 @@ function buildLayouts(settings) {
 }
 
 const ART_BORDER = {
-    subtle: () => '1px solid rgba(255,255,255,0.3)',
-    white: () => '2px solid #fff',
-    accent: settings => `2px solid ${settings.get_string('accent-color')}`,
+    none: () => 'border: none;',
+    subtle: () => 'border: 1px solid rgba(255,255,255,0.3);',
+    white: () => 'border: 2px solid #ffffff;',
+    accent: settings => `border: 2px solid ${settings.get_string('accent-color')};`,
 };
 
 // Top bar positions: [panel box, index in box, which way the expanded island grows (0 right, 1 left)].
@@ -115,6 +116,7 @@ class Island extends St.BoxLayout {
         this._shown = false;
         this._trackKey = null;
         this._indicators = new Map();
+        this._activeNotification = null;
         this._toastActive = false;
         this._toastId = 0;
         this._hoverId = 0;
@@ -184,11 +186,18 @@ class Island extends St.BoxLayout {
         });
         this._toastFill = new St.Widget({style_class: 'di-level-fill', width: 0});
         this._toastBar.add_child(this._toastFill);
-        this._toastLabel = new St.Label({style_class: 'di-toast-label', y_align: Clutter.ActorAlign.CENTER});
+
+        this._toastTextBox = new St.BoxLayout({style_class: 'di-toast-text', vertical: true, y_align: Clutter.ActorAlign.CENTER});
+        this._toastLabel = new St.Label({style_class: 'di-toast-label'});
         this._toastLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        this._toastSubLabel = new St.Label({style_class: 'di-toast-sublabel', visible: false});
+        this._toastSubLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        this._toastTextBox.add_child(this._toastLabel);
+        this._toastTextBox.add_child(this._toastSubLabel);
+
         this._toastBox.add_child(this._toastIcon);
         this._toastBox.add_child(this._toastBar);
-        this._toastBox.add_child(this._toastLabel);
+        this._toastBox.add_child(this._toastTextBox);
         this.add_child(this._toastBox);
 
         this._place();
@@ -203,6 +212,7 @@ class Island extends St.BoxLayout {
             'changed::position', () => this._place(),
             'changed::eq-style', () => this._setEqStyle(),
             'changed::width', () => this._updateLayouts(),
+            'changed::height', () => this._updateLayouts(),
             'changed::art-size', () => this._updateLayouts(),
             'changed::art-size-expanded', () => this._updateLayouts(),
             'changed::art-shape', () => this._updateLayouts(),
@@ -220,6 +230,7 @@ class Island extends St.BoxLayout {
     }
 
     _onDestroy() {
+        this._activeNotification = null;
         GLib.source_remove(this._eqId);
         this._eqTimeline.stop();
         if (this._toastId)
@@ -348,6 +359,16 @@ class Island extends St.BoxLayout {
     vfunc_button_release_event(event) {
         if (event.get_button() !== Clutter.BUTTON_PRIMARY)
             return Clutter.EVENT_PROPAGATE;
+        if (this._activeNotification) {
+            const notif = this._activeNotification;
+            this.dismissToast();
+            try {
+                notif.activate();
+            } catch (e) {
+                console.warn(`Dynamic Island: failed to activate notification: ${e}`);
+            }
+            return Clutter.EVENT_STOP;
+        }
         // First click opens the details, the next one opens the player
         if (!this._expanded && this._hasMusic && this._settings.get_string('expand-on') !== 'hover') {
             this._setExpanded(true);
@@ -383,13 +404,16 @@ class Island extends St.BoxLayout {
         this._tickEq();
     }
 
-    // Temporary takeover of the island (volume, brightness, charger, Bluetooth)
-    toast(icon, text, {level = null, color = null, duration = 2500} = {}) {
+    // Temporary takeover of the island (volume, brightness, charger, Bluetooth, notifications)
+    toast(icon, text, {level = null, color = null, subtitle = null, notification = null, duration = 2500} = {}) {
         this._toastIcon.gicon = toGicon(icon);
         this._toastIcon.style = color ? `color: ${color};` : null;
         this._toastLabel.text = text;
         this._toastLabel.visible = !!text;
+        this._toastSubLabel.text = subtitle ?? '';
+        this._toastSubLabel.visible = !!subtitle;
         this._toastBar.visible = level !== null;
+        this._activeNotification = notification ?? null;
         if (level !== null) {
             this._toastFill.ease({
                 width: Math.round(BAR_W * Math.max(0, Math.min(level, 1))),
@@ -405,6 +429,7 @@ class Island extends St.BoxLayout {
         this._toastId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
             this._toastId = 0;
             this._toastActive = false;
+            this._activeNotification = null;
             this._refresh();
             return GLib.SOURCE_REMOVE;
         });
@@ -413,6 +438,16 @@ class Island extends St.BoxLayout {
             this._toastBox.opacity = 0;
             this._toastBox.ease({opacity: 255, duration: 250, delay: 100, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
         }
+    }
+
+    dismissToast() {
+        if (this._toastId) {
+            GLib.source_remove(this._toastId);
+            this._toastId = 0;
+        }
+        this._toastActive = false;
+        this._activeNotification = null;
+        this._refresh();
     }
 
     // Small persistent indicator (screen recording, download progress); null removes it
@@ -497,6 +532,15 @@ class Island extends St.BoxLayout {
         const hover = this._isNotch()
             ? (this.hover || dateMenu.hover) && !dateMenu.menu.isOpen
             : this.hover;
+        if (this._toastActive && this._toastId && hover) {
+            GLib.source_remove(this._toastId);
+            this._toastId = 0;
+        } else if (this._toastActive && !this._toastId && !hover) {
+            this._toastId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                this.dismissToast();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
         // In click mode hovering only closes the details (when the pointer leaves)
         if (hover && this._settings.get_string('expand-on') === 'click')
             return;
@@ -572,17 +616,22 @@ class Island extends St.BoxLayout {
     _applyGeometry(geometry, width, height) {
         this._geometry = geometry;
         const px = v => `${Math.max(0, Math.round(v))}px`;
-        const top = px(geometry.topRadius ?? geometry.radius);
-        const bottom = px(geometry.radius);
-        // Width 0 = size to content, below 0 is handled by the layouts; music layouts only, toasts keep their own size
-        const minWidth = this._hasMusic && !this._toastActive ? this._settings.get_int('width') : 0;
+        const minHeight = Math.max(0, this._settings.get_int('height'));
+        const baseRadius = minHeight > 0 && !geometry.expanded ? Math.max(geometry.radius, minHeight / 2) : geometry.radius;
+        const baseTopRadius = minHeight > 0 && !geometry.expanded ? Math.max(geometry.topRadius ?? geometry.radius, minHeight / 2) : (geometry.topRadius ?? geometry.radius);
+        const top = px(baseTopRadius);
+        const bottom = px(baseRadius);
+        // Width 0 = size to content, below 0 is handled by the layouts
+        const minWidth = Math.max(0, this._settings.get_int('width'));
         this._text.style = `max-width: ${this._settings.get_int('text-width')}px;`;
         this.style = `border-radius: ${top} ${top} ${bottom} ${bottom}; padding: ${geometry.padding.map(px).join(' ')};` +
-            ` spacing: ${px(geometry.spacing)};` + (minWidth > 0 ? ` min-width: ${minWidth}px;` : '');
+            ` spacing: ${px(geometry.spacing)};` + (minWidth > 0 ? ` min-width: ${minWidth}px;` : '') +
+            (minHeight > 0 ? ` min-height: ${minHeight}px;` : '');
         const artSize = Math.round(geometry.artSize);
         this._art.set_size(artSize, artSize);
-        const border = ART_BORDER[this._settings.get_string('art-border')]?.(this._settings);
-        this._art.style = `${this._artBackground} border-radius: ${px(geometry.artRadius)};` + (border ? ` border: ${border};` : '');
+        const borderFn = ART_BORDER[this._settings.get_string('art-border')] ?? ART_BORDER.none;
+        const border = borderFn(this._settings);
+        this._art.style = `${this._artBackground} border-radius: ${px(geometry.artRadius)}; ${border}`;
         if (width !== undefined)
             this.set_size(Math.round(width), Math.round(height));
     }
@@ -788,8 +837,10 @@ class Island extends St.BoxLayout {
             x = monitor.x + margin;
         else if (horizontal === 'right')
             x = monitor.x + monitor.width - this.width - margin;
+        const hasTopBar = Main.panel && Main.panel.visible && Math.abs(Main.panel.y - monitor.y) < 5;
+        const topOffset = hasTopBar ? Main.panel.height : 0;
         const y = vertical === 'top'
-            ? monitor.y + Main.panel.height + margin
+            ? monitor.y + topOffset + margin
             : monitor.y + monitor.height - this.height - margin;
         this.set_position(x, y);
     }

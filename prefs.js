@@ -24,6 +24,8 @@ const ART_BORDERS = [['none', 'None'], ['subtle', 'Subtle'], ['white', 'White'],
 const EXPAND_ON = [['hover', 'Hover'], ['click', 'Click'], ['both', 'Hover or click']];
 
 const FEATURES = [
+    ['show-notifications', 'App and system notifications'],
+    ['hide-native-banners', 'Hide default GNOME notification banners'],
     ['show-volume', 'Volume and brightness'],
     ['show-battery', 'Charger'],
     ['show-recording', 'Screen recording'],
@@ -46,8 +48,8 @@ export default class DynamicIslandPrefs extends ExtensionPreferences {
 
         const margin = new Adw.SpinRow({
             title: 'Distance from edge',
-            subtitle: 'Pixels, not used in the top bar',
-            adjustment: new Gtk.Adjustment({lower: 0, upper: 300, step_increment: 1, page_increment: 10}),
+            subtitle: 'Pixels, distance from screen edge',
+            adjustment: new Gtk.Adjustment({lower: -200, upper: 600, step_increment: 2, page_increment: 10}),
         });
         settings.bind('margin', margin, 'value', Gio.SettingsBindFlags.DEFAULT);
 
@@ -57,6 +59,13 @@ export default class DynamicIslandPrefs extends ExtensionPreferences {
             adjustment: new Gtk.Adjustment({lower: -10, upper: 800, step_increment: 1, page_increment: 10}),
         });
         settings.bind('width', width, 'value', Gio.SettingsBindFlags.DEFAULT);
+
+        const height = new Adw.SpinRow({
+            title: 'Height',
+            subtitle: 'Minimum height in pixels, 0 fits the content',
+            adjustment: new Gtk.Adjustment({lower: 0, upper: 150, step_increment: 2, page_increment: 10}),
+        });
+        settings.bind('height', height, 'value', Gio.SettingsBindFlags.DEFAULT);
 
         const textWidth = new Adw.SpinRow({
             title: 'Max text width',
@@ -76,6 +85,7 @@ export default class DynamicIslandPrefs extends ExtensionPreferences {
         expandOn.connect('notify::selected', () => settings.set_string('expand-on', EXPAND_ON[expandOn.selected][0]));
 
         group.add(width);
+        group.add(height);
         group.add(textWidth);
         group.add(expandOn);
         page.add(group);
@@ -84,14 +94,14 @@ export default class DynamicIslandPrefs extends ExtensionPreferences {
         const artSize = new Adw.SpinRow({
             title: 'Size',
             subtitle: 'Resting island, in pixels. Above 32 the island gets taller than the top bar',
-            adjustment: new Gtk.Adjustment({lower: 16, upper: 40, step_increment: 1, page_increment: 4}),
+            adjustment: new Gtk.Adjustment({lower: 16, upper: 120, step_increment: 2, page_increment: 8}),
         });
         settings.bind('art-size', artSize, 'value', Gio.SettingsBindFlags.DEFAULT);
         cover.add(artSize);
         const artSizeExpanded = new Adw.SpinRow({
             title: 'Expanded size',
             subtitle: 'Details view, in pixels',
-            adjustment: new Gtk.Adjustment({lower: 32, upper: 120, step_increment: 2, page_increment: 8}),
+            adjustment: new Gtk.Adjustment({lower: 32, upper: 250, step_increment: 4, page_increment: 16}),
         });
         settings.bind('art-size-expanded', artSizeExpanded, 'value', Gio.SettingsBindFlags.DEFAULT);
         cover.add(artSizeExpanded);
@@ -148,6 +158,31 @@ export default class DynamicIslandPrefs extends ExtensionPreferences {
             const row = new Adw.SwitchRow({title});
             settings.bind(key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
             features.add(row);
+
+            if (key === 'show-notifications') {
+                const testRow = new Adw.ActionRow({
+                    title: 'Test notification',
+                    subtitle: 'Send a sample notification to preview on the island',
+                });
+                const testBtn = new Gtk.Button({
+                    label: 'Send Test',
+                    valign: Gtk.Align.CENTER,
+                    css_classes: ['suggested-action'],
+                });
+                testBtn.connect('clicked', () => {
+                    try {
+                        Gio.Subprocess.new(
+                            ['notify-send', '-i', 'dialog-information-symbolic', 'Dynamic Island', 'นี่คือการแจ้งเตือนทดสอบ ✨'],
+                            Gio.SubprocessFlags.NONE
+                        );
+                    } catch (e) {
+                        console.error(`Failed to send test notification: ${e}`);
+                    }
+                });
+                testRow.add_suffix(testBtn);
+                testRow.activatable_widget = testBtn;
+                features.add(testRow);
+            }
         }
         page.add(features);
         window.add(page);

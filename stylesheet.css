@@ -16,8 +16,10 @@
 .di-chip-box { spacing: 5px; }
 .di-chip-icon { icon-size: 18px; color: #fff; }
 .di-chip-label { color: #fff; font-weight: bold; font-size: 10pt; font-feature-settings: "tnum"; }
-.di-toast { spacing: 12px; padding: 0 4px 0 6px; min-height: 26px; }
-.di-toast-icon { icon-size: 22px; color: #fff; }
-.di-toast-label { color: #fff; font-weight: bold; font-size: 10pt; max-width: 300px; }
+.di-toast { spacing: 14px; padding: 4px 12px 4px 10px; min-height: 32px; }
+.di-toast-icon { icon-size: 26px; color: #fff; }
+.di-toast-text { spacing: 2px; max-width: 420px; }
+.di-toast-label { color: #fff; font-weight: bold; font-size: 11pt; max-width: 420px; }
+.di-toast-sublabel { color: #c0c0c5; font-size: 9.5pt; max-width: 420px; }
 .di-level { height: 8px; border-radius: 4px; background-color: rgba(255,255,255,0.2); }
 .di-level-fill { height: 8px; border-radius: 4px; background-color: #fff; }
