@@ -118,6 +118,7 @@ class Island extends St.BoxLayout {
         this._indicators = new Map();
         this._activeNotification = null;
         this._toastActive = false;
+        this._inFullscreen = false;
         this._toastId = 0;
         this._hoverId = 0;
         this._timeline = null;
@@ -201,14 +202,20 @@ class Island extends St.BoxLayout {
         this.add_child(this._toastBox);
 
         this._place();
+        this._inFullscreen = this._checkFullscreen();
         this._applyGeometry(this._compact());
 
         this.connect('notify::hover', () => this._onHover());
         this.connect('notify::width', () => this._reposition());
         this.connect('notify::height', () => this._reposition());
         this.connect('destroy', () => this._onDestroy());
-        Main.layoutManager.connectObject('monitors-changed', () => this._reposition(), this);
+        global.display.connectObject('in-fullscreen-changed', () => this._onFullscreenChanged(), this);
+        Main.layoutManager.connectObject('monitors-changed', () => {
+            this._onFullscreenChanged();
+            this._reposition();
+        }, this);
         settings.connectObject(
+            'changed::hide-in-fullscreen', () => this._refresh(),
             'changed::position', () => this._place(),
             'changed::eq-style', () => this._setEqStyle(),
             'changed::width', () => this._updateLayouts(),
@@ -239,6 +246,7 @@ class Island extends St.BoxLayout {
             GLib.source_remove(this._hoverId);
         this._timeline?.stop();
         this._artCancellable.cancel();
+        global.display.disconnectObject(this);
         Main.layoutManager.disconnectObject(this);
         this._settings.disconnectObject(this);
         Main.panel.statusArea.dateMenu?.container.disconnectObject(this);
@@ -481,11 +489,34 @@ class Island extends St.BoxLayout {
             this._refresh();
     }
 
+    _checkFullscreen() {
+        const monitor = Main.layoutManager.primaryMonitor;
+        if (!monitor)
+            return false;
+        if (typeof monitor.inFullscreen === 'boolean')
+            return monitor.inFullscreen;
+        return global.display.get_monitor_in_fullscreen(monitor.index);
+    }
+
+    _onFullscreenChanged() {
+        const inFullscreen = this._checkFullscreen();
+        if (this._inFullscreen === inFullscreen)
+            return;
+        this._inFullscreen = inFullscreen;
+        if (inFullscreen)
+            this._setExpanded(false);
+        this._refresh();
+    }
+
     // Shows/hides each part for the current state, springing the island to its new size
     _refresh() {
         const hasIndicators = this._indicators.size > 0;
+        const hideForFullscreen = this._inFullscreen && this._settings.get_boolean('hide-in-fullscreen');
+        const showMusic = this._hasMusic && !this._toastActive && !hideForFullscreen;
+        const showIndicators = !this._toastActive && hasIndicators && !hideForFullscreen;
+
         this._morph(() => {
-            const music = this._hasMusic && !this._toastActive;
+            const music = showMusic;
             const expanded = music && this._expanded;
             const notch = this._isNotch() && !expanded;
             this._art.visible = music && (expanded || this._settings.get_boolean('art-compact'));
@@ -495,10 +526,10 @@ class Island extends St.BoxLayout {
             this._source.visible = expanded && !!this._sourceLabel.text;
             this._controls.visible = expanded;
             this._eq.visible = music && !expanded;
-            this._indicatorBox.visible = !this._toastActive && hasIndicators;
+            this._indicatorBox.visible = showIndicators;
             this._toastBox.visible = this._toastActive;
         });
-        this._setShown(this._hasMusic || hasIndicators || this._toastActive);
+        this._setShown(showMusic || showIndicators || this._toastActive);
         this._fitSlot();
     }
 
@@ -576,7 +607,9 @@ class Island extends St.BoxLayout {
 
         this.set_size(-1, -1);
         change();
-        this._layout = this._expanded && this._hasMusic && !this._toastActive ? this._expandedGeometry() : this._compact();
+        const hideForFullscreen = this._inFullscreen && this._settings.get_boolean('hide-in-fullscreen');
+        const musicActive = this._hasMusic && !this._toastActive && !hideForFullscreen;
+        this._layout = this._expanded && musicActive ? this._expandedGeometry() : this._compact();
         const to = this._layout;
         this._applyGeometry(to);
         const [, toWidth] = this.get_preferred_width(-1);

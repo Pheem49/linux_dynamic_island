@@ -111,5 +111,9 @@
       <default>true</default>
       <summary>Hide default GNOME notification pop-up banners</summary>
     </key>
+    <key name="hide-in-fullscreen" type="b">
+      <default>true</default>
+      <summary>Hide the island when a fullscreen app or video is active</summary>
+    </key>
   </schema>
 </schemalist>

@@ -24,6 +24,7 @@ const ART_BORDERS = [['none', 'None'], ['subtle', 'Subtle'], ['white', 'White'],
 const EXPAND_ON = [['hover', 'Hover'], ['click', 'Click'], ['both', 'Hover or click']];
 
 const FEATURES = [
+    ['hide-in-fullscreen', 'Hide in fullscreen (videos, games)'],
     ['show-notifications', 'App and system notifications'],
     ['hide-native-banners', 'Hide default GNOME notification banners'],
     ['show-volume', 'Volume and brightness'],
