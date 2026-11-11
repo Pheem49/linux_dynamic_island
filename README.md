@@ -35,3 +35,24 @@ Settings: open the Extensions app → Dynamic Island → ⚙, or run `gnome-exte
 ```bash
 ./pack.sh
 ```
+
+## Testing
+
+Run the feature test suite or simulate features directly on Dynamic Island:
+
+```bash
+# Interactive test menu
+./run_tests.sh
+
+# Run code quality & syntax unit tests
+./run_tests.sh --test quality
+
+# Test desktop & app notification toasts
+./run_tests.sh --test notification
+
+# Test volume OSD toast
+./run_tests.sh --test volume
+
+# Simulate music player (Spotify/Apple Music) with playback controls
+./run_tests.sh --test music
+```

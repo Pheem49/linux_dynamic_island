@@ -58,11 +58,16 @@ const PANEL_SLOTS = {
     'panel-right': ['_rightBox', 0, 1],
 };
 
-// Damped spring (response 0.45s, damping 0.78 → ~2% overshoot), t in seconds → progress
-const OMEGA = 2 * Math.PI / 0.45;
-const ZETA = 0.78;
+// Damped spring (Apple Dynamic Island timing: response 0.34s, damping 0.88), t in seconds → progress
+const SPRING_DURATION = 340;
+const OMEGA = 2 * Math.PI / 0.34;
+const ZETA = 0.88;
 const OMEGA_D = OMEGA * Math.sqrt(1 - ZETA * ZETA);
-const spring = t => 1 - Math.exp(-ZETA * OMEGA * t) * (Math.cos(OMEGA_D * t) + ZETA * OMEGA / OMEGA_D * Math.sin(OMEGA_D * t));
+const spring = t => {
+    if (t >= SPRING_DURATION / 1000)
+        return 1.0;
+    return 1 - Math.exp(-ZETA * OMEGA * t) * (Math.cos(OMEGA_D * t) + ZETA * OMEGA / OMEGA_D * Math.sin(OMEGA_D * t));
+};
 const lerp = (a, b, p) => a + (b - a) * p;
 
 // Visualizer size per shape; levels animate toward random targets while playing
@@ -108,7 +113,7 @@ class Island extends St.BoxLayout {
             track_hover: true,
             visible: false,
             clip_to_allocation: true,
-            pivot_point: new Graphene.Point({x: 0.5, y: 0.5}),
+            pivot_point: new Graphene.Point({x: 0.5, y: 0.0}),
         });
         this._settings = settings;
         this._player = null;
@@ -126,6 +131,11 @@ class Island extends St.BoxLayout {
         this._toastId = 0;
         this._hoverId = 0;
         this._timeline = null;
+        this._morphing = false;
+        this._cachedHeight = Math.max(0, settings.get_int('height'));
+        this._cachedWidth = Math.max(0, settings.get_int('width'));
+        this._cachedTextWidth = settings.get_int('text-width');
+        this._cachedArtBorder = settings.get_string('art-border');
         this._layouts = buildLayouts(settings);
         this._layout = this._layouts.compact;
         this._geometry = this._layout;
@@ -142,15 +152,35 @@ class Island extends St.BoxLayout {
         this._row = new St.BoxLayout({vertical: false, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
         this.add_child(this._row);
 
-        this._art = new St.Bin({style_class: 'di-art', pivot_point: new Graphene.Point({x: 0.5, y: 0.5})});
+        this._art = new St.Bin({
+            style_class: 'di-art',
+            pivot_point: new Graphene.Point({x: 0.5, y: 0.5}),
+            reactive: true,
+        });
+        this._art.connect('button-release-event', () => {
+            if (!this._expanded)
+                return Clutter.EVENT_PROPAGATE;
+            this._player?.raise();
+            return Clutter.EVENT_STOP;
+        });
         this._row.add_child(this._art);
 
         // Gap the clock shows through in notch mode
         this._notch = new St.Widget({visible: false, x_expand: true});
         this._notch.connect('notify::x', () => this._reposition());
 
-        this._text = new St.BoxLayout({style_class: 'di-text', vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
-        this._source = new St.BoxLayout({style_class: 'di-source', visible: false});
+        this._text = new St.BoxLayout({
+            style_class: 'di-text',
+            vertical: true,
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            style: `max-width: ${this._cachedTextWidth}px;`,
+        });
+        this._source = new St.BoxLayout({style_class: 'di-source', visible: false, reactive: true});
+        this._source.connect('button-release-event', () => {
+            this._player?.raise();
+            return Clutter.EVENT_STOP;
+        });
         this._sourceIcon = new St.Icon({style_class: 'di-source-icon'});
         this._sourceLabel = new St.Label({style_class: 'di-source-label', y_align: Clutter.ActorAlign.CENTER});
         this._source.add_child(this._sourceIcon);
@@ -228,8 +258,14 @@ class Island extends St.BoxLayout {
         this._applyGeometry(this._compact());
 
         this.connect('notify::hover', () => this._onHover());
-        this.connect('notify::width', () => this._reposition());
-        this.connect('notify::height', () => this._reposition());
+        this.connect('notify::width', () => {
+            if (!this._morphing)
+                this._reposition();
+        });
+        this.connect('notify::height', () => {
+            if (!this._morphing)
+                this._reposition();
+        });
         this.connect('destroy', () => this._onDestroy());
         global.display.connectObject('in-fullscreen-changed', () => this._onFullscreenChanged(), this);
         Main.layoutManager.connectObject('monitors-changed', () => {
@@ -245,14 +281,28 @@ class Island extends St.BoxLayout {
             'changed::art-size', () => this._updateLayouts(),
             'changed::art-size-expanded', () => this._updateLayouts(),
             'changed::art-shape', () => this._updateLayouts(),
-            'changed::art-border', () => this._applyGeometry(this._geometry),
+            'changed::art-border', () => {
+                this._cachedArtBorder = settings.get_string('art-border');
+                this._applyGeometry(this._geometry);
+            },
             'changed::art-compact', () => this._refresh(),
             'changed::art-spin', () => this._syncSpin(),
-            'changed::text-width', () => this._refresh(),
+            'changed::text-width', () => {
+                this._cachedTextWidth = settings.get_int('text-width');
+                this._text.style = `max-width: ${this._cachedTextWidth}px;`;
+                this._refresh();
+            },
             'changed::accent-color', () => {
                 this._accent = accentGradient(settings.get_string('accent-color'));
                 this._eq.queue_repaint();
                 this._applyGeometry(this._geometry);
+            },
+            'changed::expand-on', () => {
+                if (this._hoverId) {
+                    GLib.source_remove(this._hoverId);
+                    this._hoverId = 0;
+                }
+                this._setExpanded(false);
             },
             'changed', () => this._reposition(), this);
         this._eqId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 260, () => this._tickEq());
@@ -262,6 +312,10 @@ class Island extends St.BoxLayout {
         this._activeNotification = null;
         GLib.source_remove(this._eqId);
         this._eqTimeline.stop();
+        if (this._timeline) {
+            this._timeline.stop();
+            this._timeline = null;
+        }
         if (this._toastId)
             GLib.source_remove(this._toastId);
         if (this._hoverId)
@@ -304,6 +358,8 @@ class Island extends St.BoxLayout {
     }
 
     _updateLayouts() {
+        this._cachedHeight = Math.max(0, this._settings.get_int('height'));
+        this._cachedWidth = Math.max(0, this._settings.get_int('width'));
         this._layouts = buildLayouts(this._settings);
         this._refresh();
     }
@@ -339,6 +395,7 @@ class Island extends St.BoxLayout {
         if (position === this._position)
             return;
         this._position = position;
+        this.pivot_point = new Graphene.Point({x: 0.5, y: position.startsWith('bottom') ? 1.0 : 0.0});
         Main.panel.statusArea.dateMenu?.container.disconnectObject(this);
         Main.panel.statusArea.dateMenu?.disconnectObject(this);
         Main.panel.statusArea.dateMenu?.menu.disconnectObject(this);
@@ -449,12 +506,30 @@ class Island extends St.BoxLayout {
             }
             return Clutter.EVENT_STOP;
         }
-        // First click opens the details, the next one opens the player
-        if (!this._expanded && this._hasMusic && this._settings.get_string('expand-on') !== 'hover') {
+
+        const expandOn = this._settings.get_string('expand-on');
+
+        // When expanded, clicking toggles it closed (in click or both mode)
+        if (this._expanded && this._hasMusic) {
+            if (expandOn === 'click' || expandOn === 'both') {
+                this._setExpanded(false);
+                return Clutter.EVENT_STOP;
+            }
+            this._player?.raise();
+            return Clutter.EVENT_STOP;
+        }
+
+        // First click opens the details (in click or both mode)
+        if (!this._expanded && this._hasMusic && expandOn !== 'hover') {
             this._setExpanded(true);
             return Clutter.EVENT_STOP;
         }
-        this._player?.raise();
+
+        if (this._hasMusic) {
+            this._player?.raise();
+            return Clutter.EVENT_STOP;
+        }
+
         return Clutter.EVENT_STOP;
     }
 
@@ -504,19 +579,18 @@ class Island extends St.BoxLayout {
 
         const wasActive = this._toastActive;
         this._toastActive = true;
+        this._toastBox.remove_all_transitions();
         if (this._toastId)
             GLib.source_remove(this._toastId);
         this._toastId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, duration, () => {
             this._toastId = 0;
-            this._toastActive = false;
-            this._activeNotification = null;
-            this._refresh();
+            this.dismissToast();
             return GLib.SOURCE_REMOVE;
         });
         this._refresh();
         if (!wasActive) {
             this._toastBox.opacity = 0;
-            this._toastBox.ease({opacity: 255, duration: 250, delay: 100, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+            this._toastBox.ease({opacity: 255, duration: 220, delay: 60, mode: Clutter.AnimationMode.EASE_OUT_CUBIC});
         }
     }
 
@@ -525,9 +599,18 @@ class Island extends St.BoxLayout {
             GLib.source_remove(this._toastId);
             this._toastId = 0;
         }
-        this._toastActive = false;
-        this._activeNotification = null;
-        this._refresh();
+        if (!this._toastActive)
+            return;
+        this._toastBox.ease({
+            opacity: 0,
+            duration: 160,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => {
+                this._toastActive = false;
+                this._activeNotification = null;
+                this._refresh();
+            },
+        });
     }
 
     // Small persistent indicator (screen recording, download progress); null removes it
@@ -590,15 +673,26 @@ class Island extends St.BoxLayout {
             return;
         const monitor = Main.layoutManager.primaryMonitor;
         const targetY = monitor ? monitor.y : 0;
+        this._row.ease({
+            opacity: 0,
+            duration: 140,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+        });
         this.ease({
             y: targetY,
-            opacity: 180,
-            duration: 200,
-            mode: Clutter.AnimationMode.EASE_IN_QUAD,
+            scale_y: 0.6,
+            duration: 220,
+            mode: Clutter.AnimationMode.EASE_IN_CUBIC,
             onComplete: () => {
-                this.set({opacity: 255});
+                this.set({scale_y: 1});
                 this._tucked = true;
                 this._refresh();
+                this._handle.set({opacity: 0});
+                this._handle.ease({
+                    opacity: 255,
+                    duration: 160,
+                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                });
             },
         });
     }
@@ -608,18 +702,30 @@ class Island extends St.BoxLayout {
             return;
         this._tucked = false;
         this._refresh();
-        this.set({translation_y: -15, opacity: 0});
+        this._row.set({opacity: 0});
+        this.set({translation_y: -10, opacity: 0});
         this.ease({
             translation_y: 0,
             opacity: 255,
-            duration: 350,
-            mode: Clutter.AnimationMode.EASE_OUT_BACK,
+            duration: 280,
+            mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+            onComplete: () => {
+                this.set({translation_y: 0});
+                this._reposition();
+            },
+        });
+        this._row.ease({
+            opacity: 255,
+            duration: 240,
+            delay: 60,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
         });
     }
 
     _morphTucked() {
         this._timeline?.stop();
         this._timeline = null;
+        this._morphing = false;
         this._row.visible = false;
         this._handle.visible = true;
         this.remove_style_class_name('di-island');
@@ -669,29 +775,35 @@ class Island extends St.BoxLayout {
         if (shown === this._shown)
             return;
         this._shown = shown;
+        this.remove_all_transitions();
         if (shown) {
             this.show();
             this._reposition();
-            this.set({opacity: 0, scale_x: 0.9, scale_y: 0.9});
+            this.set({opacity: 0, scale_x: 0.92, scale_y: 0.92, translation_y: -8});
             this.ease({
                 opacity: 255,
                 scale_x: 1,
                 scale_y: 1,
-                duration: 220,
-                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                translation_y: 0,
+                duration: 280,
+                mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
                 onComplete: () => {
-                    this.set({scale_x: 1, scale_y: 1, opacity: 255});
+                    this.set({scale_x: 1, scale_y: 1, translation_y: 0, opacity: 255});
                     this._reposition();
                 },
             });
         } else {
             this.ease({
                 opacity: 0,
-                scale_x: 0.9,
-                scale_y: 0.9,
-                duration: 200,
-                mode: Clutter.AnimationMode.EASE_IN_QUAD,
-                onComplete: () => this.hide(),
+                scale_x: 0.92,
+                scale_y: 0.92,
+                translation_y: -8,
+                duration: 220,
+                mode: Clutter.AnimationMode.EASE_IN_CUBIC,
+                onComplete: () => {
+                    this.hide();
+                    this.set({scale_x: 1, scale_y: 1, translation_y: 0, opacity: 0});
+                },
             });
         }
     }
@@ -718,9 +830,11 @@ class Island extends St.BoxLayout {
                 return GLib.SOURCE_REMOVE;
             });
         }
-        // In click mode hovering only closes the details (when the pointer leaves)
-        if (hover && this._settings.get_string('expand-on') === 'click')
+
+        // In click mode, hover never opens or closes details
+        if (this._settings.get_string('expand-on') === 'click')
             return;
+
         this._hoverId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, hover ? 90 : 220, () => {
             this._hoverId = 0;
             this._setExpanded(hover);
@@ -732,13 +846,38 @@ class Island extends St.BoxLayout {
         if (expanded === this._expanded)
             return;
         this._expanded = expanded;
-        this._refresh();
-        if (!this._hasMusic || this._toastActive)
-            return;
-        // Newly revealed content fades in once the island has started growing
-        for (const actor of expanded ? [this._source, this._artist, this._controls] : [this._eq]) {
-            actor.opacity = 0;
-            actor.ease({opacity: 255, duration: 250, delay: 120, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+        if (expanded) {
+            this._refresh();
+            if (!this._hasMusic || this._toastActive)
+                return;
+            this._eq.ease({
+                opacity: 0,
+                duration: 90,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                onComplete: () => { this._eq.visible = false; },
+            });
+            for (const actor of [this._source, this._artist, this._controls]) {
+                actor.opacity = 0;
+                actor.visible = true;
+                actor.ease({
+                    opacity: 255,
+                    duration: 240,
+                    delay: 90,
+                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+                });
+            }
+        } else {
+            this._refresh();
+            if (!this._hasMusic || this._toastActive)
+                return;
+            this._eq.visible = true;
+            this._eq.opacity = 0;
+            this._eq.ease({
+                opacity: 255,
+                duration: 200,
+                delay: 80,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            });
         }
     }
 
@@ -768,7 +907,8 @@ class Island extends St.BoxLayout {
             return;
         this._applyGeometry(from, fromWidth, fromHeight);
 
-        const timeline = new Clutter.Timeline({actor: this, duration: 650});
+        this._morphing = true;
+        const timeline = new Clutter.Timeline({actor: this, duration: SPRING_DURATION});
         timeline.connect('new-frame', () => {
             const p = spring(timeline.get_elapsed_time() / 1000);
             this._applyGeometry({
@@ -781,10 +921,12 @@ class Island extends St.BoxLayout {
             }, lerp(fromWidth, toWidth, p), lerp(fromHeight, toHeight, p));
         });
         timeline.connect('stopped', (t, finished) => {
+            this._morphing = false;
             if (!finished)
                 return;
             this._applyGeometry(to);
             this.set_size(-1, -1);
+            this._reposition();
             this._timeline = null;
         });
         this._timeline = timeline;
@@ -794,25 +936,25 @@ class Island extends St.BoxLayout {
     _applyGeometry(geometry, width, height) {
         this._geometry = geometry;
         const px = v => `${Math.max(0, Math.round(v))}px`;
-        const minHeight = Math.max(0, this._settings.get_int('height'));
+        const minHeight = this._cachedHeight;
         const baseRadius = minHeight > 0 && !geometry.expanded ? Math.max(geometry.radius, minHeight / 2) : geometry.radius;
         const baseTopRadius = minHeight > 0 && !geometry.expanded ? Math.max(geometry.topRadius ?? geometry.radius, minHeight / 2) : (geometry.topRadius ?? geometry.radius);
         const top = px(baseTopRadius);
         const bottom = px(baseRadius);
-        // Width 0 = size to content, below 0 is handled by the layouts
-        const minWidth = Math.max(0, this._settings.get_int('width'));
-        this._text.style = `max-width: ${this._settings.get_int('text-width')}px;`;
+        const minWidth = this._cachedWidth;
         this._row.style = `spacing: ${px(geometry.spacing)};`;
         this.style = `border-radius: ${top} ${top} ${bottom} ${bottom}; padding: ${geometry.padding.map(px).join(' ')};` +
             (minWidth > 0 ? ` min-width: ${minWidth}px;` : '') +
             (minHeight > 0 ? ` min-height: ${minHeight}px;` : '');
         const artSize = Math.round(geometry.artSize);
         this._art.set_size(artSize, artSize);
-        const borderFn = ART_BORDER[this._settings.get_string('art-border')] ?? ART_BORDER.none;
+        const borderFn = ART_BORDER[this._cachedArtBorder] ?? ART_BORDER.none;
         const border = borderFn(this._settings);
         this._art.style = `${this._artBackground} border-radius: ${px(geometry.artRadius)}; ${border}`;
-        if (width !== undefined)
+        if (width !== undefined) {
             this.set_size(Math.round(width), Math.round(height));
+            this._reposition();
+        }
     }
 
     _swapTrack(player) {
@@ -829,27 +971,32 @@ class Island extends St.BoxLayout {
         // Old track slides up and fades, new one slides in from below
         this._text.ease({
             opacity: 0,
-            translation_y: -8,
-            duration: 160,
+            translation_y: -6,
+            duration: 140,
             mode: Clutter.AnimationMode.EASE_IN_QUAD,
             onComplete: () => {
                 apply();
-                this._text.translation_y = 8;
-                this._text.ease({opacity: 255, translation_y: 0, duration: 380, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+                this._text.translation_y = 6;
+                this._text.ease({
+                    opacity: 255,
+                    translation_y: 0,
+                    duration: 260,
+                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+                });
             },
         });
         this._art.ease({
-            scale_x: 0.6,
-            scale_y: 0.6,
+            scale_x: 0.7,
+            scale_y: 0.7,
             opacity: 0,
-            duration: 160,
+            duration: 140,
             mode: Clutter.AnimationMode.EASE_IN_QUAD,
             onComplete: () => this._art.ease({
                 scale_x: 1,
                 scale_y: 1,
                 opacity: 255,
-                duration: 500,
-                mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                duration: 260,
+                mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
             }),
         });
     }
@@ -1013,7 +1160,7 @@ class Island extends St.BoxLayout {
         const margin = this._settings.get_int('margin');
         const width = this.width > 0 ? this.width : this.get_preferred_width(-1)[1];
         const height = this.height > 0 ? this.height : this.get_preferred_height(width)[1];
-        let x = monitor.x + Math.floor((monitor.width - width) / 2);
+        let x = monitor.x + Math.round((monitor.width - width) / 2);
         if (horizontal === 'left')
             x = monitor.x + margin;
         else if (horizontal === 'right')

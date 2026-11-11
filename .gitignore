@@ -1,3 +1,4 @@
 *.zip
 schemas/gschemas.compiled
 .shexli-check/
+__pycache__/

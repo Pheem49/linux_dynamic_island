@@ -79,11 +79,23 @@ export default class DynamicIslandPrefs extends ExtensionPreferences {
         group.add(margin);
         const expandOn = new Adw.ComboRow({
             title: 'Open details on',
-            subtitle: 'With click, a second click opens the player',
             model: Gtk.StringList.new(EXPAND_ON.map(p => p[1])),
             selected: Math.max(0, EXPAND_ON.findIndex(p => p[0] === settings.get_string('expand-on'))),
         });
-        expandOn.connect('notify::selected', () => settings.set_string('expand-on', EXPAND_ON[expandOn.selected][0]));
+        const updateExpandSubtitle = () => {
+            const val = EXPAND_ON[expandOn.selected]?.[0];
+            if (val === 'click')
+                expandOn.subtitle = 'Click to open and close details (click album art to open app)';
+            else if (val === 'hover')
+                expandOn.subtitle = 'Hover to open details, move pointer away to close';
+            else
+                expandOn.subtitle = 'Hover or click to open details';
+        };
+        updateExpandSubtitle();
+        expandOn.connect('notify::selected', () => {
+            settings.set_string('expand-on', EXPAND_ON[expandOn.selected][0]);
+            updateExpandSubtitle();
+        });
 
         group.add(width);
         group.add(height);
