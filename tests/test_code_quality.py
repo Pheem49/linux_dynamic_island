@@ -25,7 +25,7 @@ class TestDynamicIslandCodeQuality(unittest.TestCase):
         with open(meta_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        self.assertEqual(data.get('uuid'), 'dynamic-island@bjagetic')
+        self.assertEqual(data.get('uuid'), 'dynamic-island@pheem49')
         self.assertIn('name', data)
         self.assertIn('description', data)
         self.assertIn('shell-version', data)
@@ -34,7 +34,7 @@ class TestDynamicIslandCodeQuality(unittest.TestCase):
     def test_schema_compilation_and_keys(self):
         """Validate GSettings XML schema syntax and key definitions."""
         schemas_dir = os.path.join(self.root, 'schemas')
-        xml_path = os.path.join(schemas_dir, 'org.gnome.shell.extensions.dynamic-island.gschema.xml')
+        xml_path = os.path.join(schemas_dir, 'org.gnome.shell.extensions.dynamic-island-pheem49.gschema.xml')
         self.assertTrue(os.path.isfile(xml_path), "GSchema XML not found")
 
         # Compile test with glib-compile-schemas
@@ -48,7 +48,7 @@ class TestDynamicIslandCodeQuality(unittest.TestCase):
         # Parse XML tree and verify critical keys
         tree = ET.parse(xml_path)
         root = tree.getroot()
-        schema = root.find(".//schema[@id='org.gnome.shell.extensions.dynamic-island']")
+        schema = root.find(".//schema[@id='org.gnome.shell.extensions.dynamic-island-pheem49']")
         self.assertIsNotNone(schema, "Schema ID not found in XML")
 
         defined_keys = {k.attrib.get('name') for k in schema.findall('key')}

@@ -491,11 +491,6 @@ class Island extends St.BoxLayout {
             }
         }
 
-        if (this._tucked) {
-            this._untuck();
-            return Clutter.EVENT_STOP;
-        }
-
         if (this._activeNotification) {
             const notif = this._activeNotification;
             this.dismissToast();
@@ -504,6 +499,16 @@ class Island extends St.BoxLayout {
             } catch (e) {
                 console.warn(`Dynamic Island: failed to activate notification: ${e}`);
             }
+            return Clutter.EVENT_STOP;
+        }
+
+        if (this._toastActive) {
+            this.dismissToast();
+            return Clutter.EVENT_STOP;
+        }
+
+        if (this._tucked) {
+            this._untuck();
             return Clutter.EVENT_STOP;
         }
 
@@ -587,6 +592,31 @@ class Island extends St.BoxLayout {
             this.dismissToast();
             return GLib.SOURCE_REMOVE;
         });
+
+        if (this._tucked) {
+            this.remove_all_transitions();
+            this.remove_style_class_name('di-island-tucked');
+            this.add_style_class_name('di-island');
+            this._row.visible = true;
+            this._row.opacity = 255;
+            this._handle.visible = false;
+            const monitor = Main.layoutManager.primaryMonitor;
+            if (monitor) {
+                const [vertical] = this._settings.get_string('position').split('-');
+                const margin = this._settings.get_int('margin');
+                const hasTopBar = Main.panel && Main.panel.visible && Math.abs(Main.panel.y - monitor.y) < 5;
+                const topOffset = hasTopBar ? Main.panel.height : 0;
+                const targetY = vertical === 'top'
+                    ? monitor.y + topOffset + margin
+                    : monitor.y + monitor.height - (this.height > 0 ? this.height : 36) - margin;
+                this.ease({
+                    y: targetY,
+                    duration: 240,
+                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+                });
+            }
+        }
+
         this._refresh();
         if (!wasActive) {
             this._toastBox.opacity = 0;
@@ -608,7 +638,27 @@ class Island extends St.BoxLayout {
             onComplete: () => {
                 this._toastActive = false;
                 this._activeNotification = null;
-                this._refresh();
+                if (this._tucked) {
+                    const monitor = Main.layoutManager.primaryMonitor;
+                    const targetY = monitor ? monitor.y : 0;
+                    this._row.ease({
+                        opacity: 0,
+                        duration: 140,
+                        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                    });
+                    this.ease({
+                        y: targetY,
+                        scale_y: 0.6,
+                        duration: 200,
+                        mode: Clutter.AnimationMode.EASE_IN_CUBIC,
+                        onComplete: () => {
+                            this.set({scale_y: 1});
+                            this._refresh();
+                        },
+                    });
+                } else {
+                    this._refresh();
+                }
             },
         });
     }
@@ -727,7 +777,9 @@ class Island extends St.BoxLayout {
         this._timeline = null;
         this._morphing = false;
         this._row.visible = false;
+        this._row.opacity = 0;
         this._handle.visible = true;
+        this._handle.opacity = 255;
         this.remove_style_class_name('di-island');
         this.add_style_class_name('di-island-tucked');
         this.style = 'border-radius: 0 0 8px 8px; padding: 2px 10px 4px 10px; min-width: 50px; min-height: 7px; background-color: rgba(0, 0, 0, 0.88); box-shadow: 0 2px 8px rgba(0,0,0,0.5);';
@@ -753,6 +805,7 @@ class Island extends St.BoxLayout {
             this.remove_style_class_name('di-island-tucked');
             this.add_style_class_name('di-island');
             this._row.visible = true;
+            this._row.opacity = 255;
             const music = showMusic;
             const expanded = music && this._expanded;
             const notch = this._isNotch() && !expanded;
@@ -809,7 +862,7 @@ class Island extends St.BoxLayout {
     }
 
     _onHover() {
-        if (this._tucked)
+        if (this._tucked && !this._toastActive)
             return;
 
         // Small hover intent delay so passing the mouse over the island doesn't make it jump
@@ -831,8 +884,8 @@ class Island extends St.BoxLayout {
             });
         }
 
-        // In click mode, hover never opens or closes details
-        if (this._settings.get_string('expand-on') === 'click')
+        // In click mode or when tucked, hover never opens or closes details
+        if (this._settings.get_string('expand-on') === 'click' || this._tucked)
             return;
 
         this._hoverId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, hover ? 90 : 220, () => {

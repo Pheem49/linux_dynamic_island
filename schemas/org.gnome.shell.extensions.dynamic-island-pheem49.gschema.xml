@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.dynamic-island" path="/org/gnome/shell/extensions/dynamic-island/">
+  <schema id="org.gnome.shell.extensions.dynamic-island-pheem49" path="/org/gnome/shell/extensions/dynamic-island-pheem49/">
     <key name="position" type="s">
       <choices>
         <choice value="top-center"/><choice value="top-left"/><choice value="top-right"/>

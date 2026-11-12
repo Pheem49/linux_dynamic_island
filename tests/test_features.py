@@ -99,7 +99,7 @@ def test_music():
 
 def test_settings():
     """Test GSettings reading and setting changes."""
-    schema = 'org.gnome.shell.extensions.dynamic-island'
+    schema = 'org.gnome.shell.extensions.dynamic-island-pheem49'
     log("Testing GSettings Configuration Keys...", "⚙️")
 
     # Read current settings

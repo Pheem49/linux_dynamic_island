@@ -1,34 +1,49 @@
-# Dynamic Island for GNOME
+# Dynamic Island (Enhanced) for GNOME
 
-<img src="icon.png" width="96" alt="">
+<p align="center">
+  <img src="icon.png" width="96" alt="Dynamic Island Icon">
+</p>
 
-<img width="500" height="269" alt="image" src="https://github.com/user-attachments/assets/39bb63b9-f8fb-444c-bd9d-0f3f877631af" />
-<img width="500" height="269" alt="image" src="https://github.com/user-attachments/assets/10144d60-060b-4ad1-964d-82738655068a" />
-<img width="500" height="269" alt="image" src="https://github.com/user-attachments/assets/9b18daea-04c7-4418-a638-b9b4c3043667" />
+<p align="center">
+  <img src="screenshots/player_expanded.png" width="560" alt="Music Player Expanded with Controls and Grab Handle" />
+</p>
 
-<img width="500" height="269" alt="image" src="https://github.com/user-attachments/assets/8ea98f0d-ac8b-4940-aafc-eaeee3c50711" />
+<p align="center">
+  <img src="screenshots/notification_antigravity.png" width="48%" alt="App Notification Toast" />
+  <img src="screenshots/notification_test.png" width="48%" alt="System Notification Toast" />
+</p>
+
+<p align="center">
+  <img src="screenshots/battery_warning.png" width="48%" alt="Battery Warning Notification" />
+  <img src="screenshots/charging_status.png" width="48%" alt="Charger and Battery Level Toast" />
+</p>
 
 
-iOS-style live island that shows what's playing (Spotify, YouTube in browsers, any MPRIS player).
-Hover to expand with controls, click to open the player. Position is configurable in the extension settings: floating at a screen edge, or inside the top bar
-(after Activities, left/right of the clock, before the system menu, or wrapped around the clock like the
-iPhone notch). The music visualizer shape (bars, spectrum, segments, solid, wave, ribbon) and color are configurable too.
+Enhanced iOS-style live island for GNOME Shell featuring:
+- **Auto-hide in fullscreen mode** (automatically hides during videos/games to prevent distractions)
+- **iOS-style grab handle & swipe-to-tuck** (smooth gesture to tuck the island into the top notch)
+- **Smooth animations & click-to-toggle details**
+- Live playback status (Spotify, YouTube in browsers, any MPRIS player) with visualizer
+- App notifications, Volume/Brightness OSD, charger, screen recording, Bluetooth devices, and download progress.
+- Flexible positioning (top/bottom edges, or embedded in the panel around clock/status area).
+
+*Forked and enhanced from the original [Dynamic Island by Bojan Jagetic](https://github.com/basskibo/linux_dynamic_island).*
 
 Supports GNOME Shell 46–48.
 
 ## Install on another computer
 
 ```bash
-gnome-extensions install --force dynamic-island@bjagetic.shell-extension.zip
+gnome-extensions install --force dynamic-island@pheem49.shell-extension.zip
 ```
 
 Log out and back in (required on Wayland), then:
 
 ```bash
-gnome-extensions enable dynamic-island@bjagetic
+gnome-extensions enable dynamic-island@pheem49
 ```
 
-Settings: open the Extensions app → Dynamic Island → ⚙, or run `gnome-extensions prefs dynamic-island@bjagetic`.
+Settings: open the Extensions app → Dynamic Island → ⚙, or run `gnome-extensions prefs dynamic-island@pheem49`.
 
 ## Build the zip after changes
 
