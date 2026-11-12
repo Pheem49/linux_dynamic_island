@@ -1,6 +1,6 @@
 {
   "uuid": "dynamic-island@pheem49",
-  "name": "Dynamic Island (Enhanced)",
+  "name": "Linux - Dynamic Island",
   "description": "Enhanced iOS-style live island featuring fullscreen auto-hide, grab handle with swipe-to-tuck, and live widgets. Shows media playback, volume & brightness, charger, screen recording, Bluetooth devices, and download progress. Forked and enhanced from Dynamic Island by Bojan Jagetic.",
   "shell-version": [
     "46",

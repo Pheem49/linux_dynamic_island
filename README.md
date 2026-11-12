@@ -1,4 +1,4 @@
-# Dynamic Island (Enhanced) for GNOME
+# Linux - Dynamic Island for GNOME
 
 <p align="center">
   <img src="icon.png" width="96" alt="Dynamic Island Icon">
